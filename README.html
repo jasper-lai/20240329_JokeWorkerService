@@ -1,0 +1,354 @@
+﻿<body>
+    <div style="font-size: medium;">
+        <!-- <h1 id="如何在-net-8-建立基於-backgroundservice-的-windows-service-應用程式-1">如何在 .NET 8 建立基於 BackgroundService 的 Windows Service 應用程式 (1)</h1> -->
+        <h2 id="how-to-create-windows-service-application-in-net-8-by-backgroundservice-1">How to create Windows Service Application in .NET 8 by BackgroundService (1)</h2>
+        <p>這是一個參考 <a href="https://learn.microsoft.com/zh-tw/dotnet/core/extensions/windows-service" target="_blank">(Microsoft)(中文版) 使用 BackgroundService 建立 Windows 服務</a> 所作的演練.</p>
+        <p>如同 <a href="https://blog.darkthread.net/blog/net6-windows-service/" target="_blank">(黑暗執行緒) 使用 .NET 6 開發 Windows Service</a> 所提到的, 可以同時支援 Console 及 Service 這 2 種執行模式真的很不錯. 不然以往都要切 3 個 C# 專案: 核心 Library, Console, Windows Service.</p>
+        <ul>
+            <li>Library: 程式邏輯核心.</li>
+            <li>Console: 是為了偵錯用.</li>
+            <li>Windows Service: 是為了部署上線用.</li>
+        </ul>
+        <p>以下為章節列表.</p>
+        <p>一. <a href="#section1">開發過程</a><br />
+            二. <a href="#section2">採用 Serilog 輸出至 Console 及 File</a><br />
+            三. <a href="#section3">以 Console 模式執行</a><br />
+            四. <a href="#section4">以 Windows Service 模式執行</a></p>
+        <!-- more -->
+        <h2 id="一-開發過程-">一. 開發過程 <a id="section1"></a></h2>
+        <p>1.. 以 dotnet CLI 或 Visual Studio 2022 建立 &quot;背景工作服務&quot; 專案.</p>
+        <pre><code class="language-powershell">dotnet new worker --name JokeWorkerService
+</code></pre>
+        <p>2.. 加入 nuget 套件: Microsoft.Extensions.Hosting.WindowsServices</p>
+        <pre><code class="language-powershell">dotnet add package Microsoft.Extensions.Hosting.WindowsServices
+</code></pre>
+        <p>3.. 修改 .csproj: 設定專案發行時的組態.</p>
+        <pre><code class="language-xml">&lt;OutputType&gt;exe&lt;/OutputType&gt;
+&lt;PublishSingleFile Condition=&quot;'$(Configuration)' == 'Release'&quot;&gt;true&lt;/PublishSingleFile&gt;
+&lt;RuntimeIdentifier&gt;win-x64&lt;/RuntimeIdentifier&gt;
+&lt;PlatformTarget&gt;x64&lt;/PlatformTarget&gt;      
+</code></pre>
+        <ul>
+            <li>&lt;OutputType&gt;exe&lt;/OutputType&gt;: 建立主控台應用程式 (Console Application).</li>
+            <li>&lt;PublishSingleFile Condition=&quot;'$(Configuration)' == 'Release'&quot;&gt;true&lt;/PublishSingleFile&gt;: 啟用單一檔案發佈.</li>
+            <li>&lt;RuntimeIdentifier&gt;win-x64&lt;/RuntimeIdentifier&gt;: 指定 win-x64 的 <a href="https://learn.microsoft.com/zh-tw/dotnet/core/rid-catalog" target="_blank">RID</a>.</li>
+            <li>&lt;PlatformTarget&gt;x64&lt;/PlatformTarget&gt;: 指定 64 位元的目標平台 CPU.</li>
+        </ul>
+        <p>4.. 建立服務: JokeService</p>
+        <pre><code class="language-csharp">public sealed class JokeService
+{
+    public string GetJoke()
+    {
+        Joke joke = _jokes.ElementAt(
+            Random.Shared.Next(_jokes.Count));
+
+        return $&quot;{joke.Setup}{Environment.NewLine}{joke.Punchline}&quot;;
+    }
+
+    // Programming jokes borrowed from:
+    // https://github.com/eklavyadev/karljoke/blob/main/source/jokes.json
+    private readonly HashSet&lt;Joke&gt; _jokes =
+    [
+        new Joke(&quot;What's the best thing about a Boolean?&quot;, &quot;Even if you're wrong, you're only off by a bit.&quot;),
+        new Joke(&quot;What's the object-oriented way to become wealthy?&quot;, &quot;Inheritance&quot;),
+        new Joke(&quot;Why did the programmer quit their job?&quot;, &quot;Because they didn't get arrays.&quot;),
+        new Joke(&quot;Why do programmers always mix up Halloween and Christmas?&quot;, &quot;Because Oct 31 == Dec 25&quot;),
+        new Joke(&quot;How many programmers does it take to change a lightbulb?&quot;, &quot;None that's a hardware problem&quot;),
+        new Joke(&quot;If you put a million monkeys at a million keyboards, one of them will eventually write a Java program&quot;, &quot;the rest of them will write Perl&quot;),
+        new Joke(&quot;['hip', 'hip']&quot;, &quot;(hip hip array)&quot;),
+        new Joke(&quot;To understand what recursion is...&quot;, &quot;You must first understand what recursion is&quot;),
+        new Joke(&quot;There are 10 types of people in this world...&quot;, &quot;Those who understand binary and those who don't&quot;),
+        new Joke(&quot;Which song would an exception sing?&quot;, &quot;Can't catch me - Avicii&quot;),
+        new Joke(&quot;Why do Java programmers wear glasses?&quot;, &quot;Because they don't C#&quot;),
+        new Joke(&quot;How do you check if a webpage is HTML5?&quot;, &quot;Try it out on Internet Explorer&quot;),
+        new Joke(&quot;A user interface is like a joke.&quot;, &quot;If you have to explain it then it is not that good.&quot;),
+        new Joke(&quot;I was gonna tell you a joke about UDP...&quot;, &quot;...but you might not get it.&quot;),
+        new Joke(&quot;The punchline often arrives before the set-up.&quot;, &quot;Do you know the problem with UDP jokes?&quot;),
+        new Joke(&quot;Why do C# and Java developers keep breaking their keyboards?&quot;, &quot;Because they use a strongly typed language.&quot;),
+        new Joke(&quot;Knock-knock.&quot;, &quot;A race condition. Who is there?&quot;),
+        new Joke(&quot;What's the best part about TCP jokes?&quot;, &quot;I get to keep telling them until you get them.&quot;),
+        new Joke(&quot;A programmer puts two glasses on their bedside table before going to sleep.&quot;, &quot;A full one, in case they gets thirsty, and an empty one, in case they don’t.&quot;),
+        new Joke(&quot;There are 10 kinds of people in this world.&quot;, &quot;Those who understand binary, those who don't, and those who weren't expecting a base 3 joke.&quot;),
+        new Joke(&quot;What did the router say to the doctor?&quot;, &quot;It hurts when IP.&quot;),
+        new Joke(&quot;An IPv6 packet is walking out of the house.&quot;, &quot;He goes nowhere.&quot;),
+        new Joke(&quot;3 SQL statements walk into a NoSQL bar. Soon, they walk out&quot;, &quot;They couldn't find a table.&quot;)
+    ];
+}
+</code></pre>
+        <p>5.. 修訂 Worker.cs:</p>
+        <p>摘要:<br />
+            注入 JokeService, 並在 ExecuteAsync() 呼叫 _jokeService.GetJoke() 方法</p>
+        <p>部份程式說明:<br />
+            (1) Worker 類別繼承自 BackgroundService 類別.<br />
+            (2) 覆寫 ExecuteAsync() 方法.<br />
+            (3) ExecuteAsync() 方法會在基底 BackgroundService 類別的 StartAsync() 呼叫.</p>
+        <pre><code class="language-csharp">public class Worker : BackgroundService
+{
+    private readonly ILogger&lt;Worker&gt; _logger;
+    private readonly JokeService _jokeService;
+
+    public Worker(ILogger&lt;Worker&gt; logger, JokeService jokeService)
+    {
+        _logger = logger;
+        _jokeService = jokeService;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                //if (_logger.IsEnabled(LogLevel.Information))
+                //{
+                //    _logger.LogInformation(&quot;Worker running at: {time}&quot;, DateTimeOffset.Now);
+                //}
+                // await Task.Delay(1000, stoppingToken);
+
+                string joke = _jokeService.GetJoke();
+                _logger.LogWarning(&quot;{Joke}&quot;, joke);
+
+                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 如果是由 services.msc 停掉服務, 則會跑到這個 OperationCanceledException
+            // 這算是正常的操作, 不應該擲回非 0 的 exit code.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, &quot;{Message}&quot;, ex.Message);
+
+            // In order for the Windows Service Management system to leverage configured
+            // recovery options, we need to terminate the process with a non-zero exit code.
+            Environment.Exit(1);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 服務啟動時
+    /// &lt;/summary&gt;
+    /// &lt;param name=&quot;stoppingToken&quot;&gt;The stopping token.&lt;/param&gt;
+    public override async Task StartAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation(&quot;Service started&quot;);
+        // 基底類別 BackgroundService: 在 StartAsync() 呼叫 ExecuteAsync、
+        await base.StartAsync(stoppingToken);
+    }
+
+    /// &lt;summary&gt;
+    /// 服務停止時
+    /// &lt;/summary&gt;
+    /// &lt;param name=&quot;stoppingToken&quot;&gt;The stopping token.&lt;/param&gt;
+    public override async Task StopAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation(&quot;Service stopped&quot;);
+        // 基底類別 BackgroundService: 在 StopAsync() 時呼叫 stoppingToken.Cancel() 優雅結束
+        await base.StopAsync(stoppingToken);
+    }
+}
+</code></pre>
+        <pre><code class="language-csharp">public abstract class BackgroundService : IHostedService, IDisposable
+{
+    private Task? _executeTask;
+    private CancellationTokenSource? _stoppingCts;
+
+    /// Gets the Task that executes the background operation.
+    public virtual Task? ExecuteTask =&gt; _executeTask;
+
+    /// This method is called when the &lt;see cref=&quot;IHostedService&quot;/&gt; starts. The implementation should return a task that represents
+    /// the lifetime of the long running operation(s) being performed.
+    protected abstract Task ExecuteAsync(CancellationToken stoppingToken);
+
+    /// Triggered when the application host is ready to start the service.
+    public virtual Task StartAsync(CancellationToken cancellationToken)
+    {
+        // Create linked token to allow cancelling executing task from provided token
+        _stoppingCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        // Store the task we're executing
+        _executeTask = ExecuteAsync(_stoppingCts.Token);
+
+        // If the task is completed then return it, this will bubble cancellation and failure to the caller
+        if (_executeTask.IsCompleted)
+        {
+            return _executeTask;
+        }
+
+        // Otherwise it's running
+        return Task.CompletedTask;
+    }
+    
+    // (省略) 以下原始程式碼
+}
+</code></pre>
+        <p>6.. 修訂 Program.cs:</p>
+        <p>摘要:<br />
+            (1) builder.Services.AddWindowsService(...): AddWindowsService 擴充方法會設定應用程式如 Windows 服務般運作. 服務名稱設為 &quot;.NET8 Joke Service&quot;.<br />
+            (2) builder.Services.AddSingleton&lt;JokeService&gt;(): 將 JokeService 註冊到 DI container.</p>
+        <pre><code class="language-csharp">using WorkerServiceSample02;
+
+var builder = Host.CreateApplicationBuilder(args);
+
+// 這是為了要以 Windows Service 模式執行.
+// 但如果沒有註冊到 &quot;服務&quot;, 仍然是以 Console 模式執行.
+builder.Services.AddWindowsService(options =&gt;
+{
+    options.ServiceName = &quot;.NET8 Joke Service&quot;;
+});
+
+builder.Services.AddSingleton&lt;JokeService&gt;();
+builder.Services.AddHostedService&lt;Worker&gt;();
+
+var host = builder.Build();
+host.Run();
+</code></pre>
+        <p>7.. 在 VS 2022 小試一下, 看來正常.<br />
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/01-Console_Output_with_Default_Logger.png?raw=true" alt="01 Console_Output_with_Default_Logger" /></p>
+        <h2 id="二-採用-serilog-輸出至-console-及-file-">二. 採用 Serilog 輸出至 Console 及 File <a id="section2"></a></h2>
+        <p>由於 Windows Event Log 真的不是很 user friendly (可能筆者沒有很深入研究 Event Log 吧 ^^).<br />
+            故採用 Serilog 輸出至 Console 及 File.</p>
+        <p>1.. 加入相關的 nuget 套件.</p>
+        <ul>
+            <li>Serilog &quot;3.1.1&quot;</li>
+            <li>Serilog.Sinks.Console &quot;5.0.1&quot;</li>
+            <li>Serilog.Sinks.File &quot;5.0.0&quot;</li>
+            <li>Serilog.Extensions.Hosting &quot;8.0.0&quot;</li>
+        </ul>
+        <p>2.. 修訂 Program.cs.<br />
+            加入 &quot;設置 Serilog&quot; 及 &quot;採用 Serilog 作為 Log 的工具&quot; 這 2 個程式段.</p>
+        <p><strong>重要:</strong><br />
+            <strong>原本設定的 Log 檔為 &quot;logs/JokeService-yyyyMMdd.txt&quot;, 預設在 logs 資料夾下; 但經實測, 會依執行方式, 而有不同的位置.</strong></p>
+        <ul>
+            <li>在 VS2022 偵錯: logs 資料夾與 bin 資料夾同一層.</li>
+            <li>在檔案總管 double-click .exe: logs 資料夾位於 .exe 的下一層.</li>
+            <li>部署為 Windows Service: logs 資料夾位於 &quot;C:\Windows\System32&quot; 資料夾下.</li>
+        </ul>
+        <p><strong>為了避免 log 檔案位置不一致, 改為固定在 D:/Temp/logs/ 之下. 但這樣就只能限制執行平台是 Windows 了.</strong></p>
+        <pre><code class="language-csharp">using Serilog;
+using WorkerServiceSample02;
+
+#region 設置 Serilog 
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.Console()
+    //.WriteTo.File(&quot;logs/JokeService-.txt&quot;, rollingInterval: RollingInterval.Day)
+    .WriteTo.File(&quot;D:/Temp/logs/JokeService-.txt&quot;, rollingInterval: RollingInterval.Day)
+    .CreateLogger(); 
+#endregion
+
+var builder = Host.CreateApplicationBuilder(args);
+
+#region 採用 Serilog 作為 Log 的工具
+// Configure your application
+builder.Logging.ClearProviders(); // Clear default logging providers
+builder.Logging.AddSerilog(); // Use Serilog for logging
+#endregion
+
+// 這是為了要以 Windows Service 模式執行.
+// 但如果沒有註冊到 &quot;服務&quot;, 仍然是以 Console 模式執行.
+builder.Services.AddWindowsService(options =&gt;
+{
+    options.ServiceName = &quot;.NET8 Joke Service&quot;;
+});
+
+builder.Services.AddSingleton&lt;JokeService&gt;();
+builder.Services.AddHostedService&lt;Worker&gt;();
+
+var host = builder.Build();
+host.Run();
+</code></pre>
+        <h2 id="三-以-console-模式執行-">三. 以 Console 模式執行 <a id="section3"></a></h2>
+        <p>以 Console 的方式執行, 係指在 Visual Studio 2022 或在檔案總管 double-click \bin\Debug\net8.0\win-x64\JokeWorkerService.exe.</p>
+        <h3 id="一-在-visual-studio-2022-可以偵錯-按-f5">(一) 在 Visual Studio 2022 可以偵錯 (按 [F5])</h3>
+        <p><img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/11-VS2022_Debug_as_console.png?raw=true" alt="11 VS2022_Debug_as_console" /></p>
+        <h3 id="二-在檔案總管-double-click-jokeworkerserviceexe-可以直接執行">(二) 在檔案總管 double-click JokeWorkerService.exe 可以直接執行</h3>
+        <p><img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/12-Run_in_Console_Mode.png?raw=true" alt="12 Run_in_Console_Mode" /></p>
+        <h2 id="四-以-windows-service-模式執行-">四. 以 Windows Service 模式執行 <a id="section4"></a></h2>
+        <h3 id="一-發行為單一的-exe-檔">(一) 發行為單一的 .exe 檔</h3>
+        <p><strong>1.. [方式1] 使用 Visual Studio 2022 發佈 (publish)</strong><br />
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/21-Publish_by_VS2022.png?raw=true" alt="21 Publish_by_VS2022" /><br />
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/22-Publish_by_VS2022.png?raw=true" alt="22 Publish_by_VS2022" /><br />
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/23-Publish_by_VS2022.png?raw=true" alt="23 Publish_by_VS2022" /><br />
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/24-Publish_by_VS2022.png?raw=true" alt="24 Publish_by_VS2022" /><br />
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/25-Publish_by_VS2022_OK.png?raw=true" alt="25 Publish_by_VS2022_OK" /></p>
+        <p><strong>2.. [方式2] 使用 dotnet CLI</strong><br />
+            使用 dotnet publish -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true 編譯成單一 .exe 檔.</p>
+        <p>以<strong>系統管理員身份</strong>, 在 Visual Studio 2022 Developer Command Prompt 執行以下指令.</p>
+        <pre><code class="language-powershell">D:\Temp\JokeWorkerService&gt; dotnet publish -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=true
+.NET 的 MSBuild 版本 17.9.6+a4ecab324
+  正在判斷要還原的專案...
+  已還原 
+  ...\JokeWorkerService\bin\Release\net8.0\win-x64\publish\
+
+D:\Temp\JokeWorkerService&gt; dir bin\Release\net8.0\win-x64\publish
+2024/03/28  下午 02:41               137 appsettings.Development.json
+2024/03/28  下午 02:41               137 appsettings.json
+2024/03/28  下午 03:52         2,753,223 JokeWorkerService.exe
+2024/03/28  下午 03:52            15,044 JokeWorkerService.pdb
+</code></pre>
+        <p>3.. 請留意: 前述的 VS 2022 發佈 (約 4MB), 跟 dotnet CLI 發佈 (約 2MB) 的差異, 在於是否有 [V] 啟用 ReadyToRun 編譯. dotnet CLI 那串指令, 等同沒有打 V 啟用 ReadyToRun 編譯.</p>
+        <h3 id="二-註冊及啟動">(二) 註冊及啟動</h3>
+        <p>1.. 複製所有發行的檔案, 至 Windows Service 所在的資料夾.</p>
+        <pre><code class="language-powershell">D:\Temp\JokeWorkerService&gt; copy bin\Release\net8.0\win-x64\publish\*.* D:\Temp\publish\JokeWorkerService
+</code></pre>
+        <p>2.. 建立 Windows Service, 並設為自動啟動, 且給予描述.</p>
+        <pre><code class="language-powershell">D:\Temp\JokeWorkerService&gt; cd &quot;D:\Temp\publish\JokeWorkerService&quot;
+
+D:\Temp\publish\JokeWorkerService&gt;sc create &quot;.NET8 Joke Service&quot; binpath=&quot;D:\Temp\publish\JokeWorkerService\JokeWorkerService.exe&quot; start=auto
+[SC] CreateService 成功
+
+D:\Temp\publish\JokeWorkerService&gt;sc description &quot;.NET8 Joke Service&quot; &quot;This is a joke ...&quot;
+[SC] ChangeServiceConfig2 成功
+</code></pre>
+        <p>對照一下 &quot;服務&quot; 裡的狀況, 確定有註冊成功, 且為自動啟動.
+            <img src="https://github.com/jasper-lai/20240329_JokeWorkerService/blob/master/pictures/31-Services_List.png?raw=true" alt="31 Services_List" /></p>
+        <p>3.. 啟動服務.</p>
+        <pre><code class="language-powershell">D:\Temp\publish\JokeWorkerService&gt;sc start &quot;.NET8 Joke Service&quot;
+SERVICE_NAME: .NET Joke Service
+        TYPE               : 10  WIN32_OWN_PROCESS
+        STATE              : 2  START_PENDING
+                                (NOT_STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x7d0
+        PID                : 31204
+        FLAGS              :
+</code></pre>
+        <p>4.. 停止服務.</p>
+        <pre><code class="language-powershell">D:\Temp\publish\JokeWorkerService&gt;sc stop &quot;.NET8 Joke Service&quot;
+SERVICE_NAME: .NET Joke Service
+        TYPE               : 10  WIN32_OWN_PROCESS
+        STATE              : 3  STOP_PENDING
+                                (STOPPABLE, NOT_PAUSABLE, ACCEPTS_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+</code></pre>
+        <p>5.. 刪除服務.</p>
+        <pre><code class="language-powershell">D:\Temp\publish\JokeWorkerService&gt;sc delete &quot;.NET8 Joke Service&quot;
+[SC] DeleteService 成功
+</code></pre>
+        <h2 id="參考文件">參考文件</h2>
+        <ul>
+            <li>
+                <p><a href="https://blog.darkthread.net/blog/net6-windows-service/" target="_blank">(黑暗執行緒) 使用 .NET 6 開發 Windows Service</a></p>
+            </li>
+            <li>
+                <p><a href="https://blog.darkthread.net/blog/dotnet6-publish-notes/" target="_blank">(黑暗執行緒) 使用 dotnet 命令列工具發行 .NET 6 專案</a></p>
+            </li>
+            <li>
+                <p><a href="https://learn.microsoft.com/zh-tw/dotnet/core/extensions/windows-service" target="_blank">(Microsoft)(中文版) 使用 BackgroundService 建立 Windows 服務</a></p>
+            </li>
+            <li>
+                <p><a href="https://learn.microsoft.com/en-us/dotnet/core/extensions/windows-service" target="_blank">(Microsoft)(英文版) Create Windows Service using BackgroundService</a></p>
+            </li>
+            <li>
+                <p><a href="https://github.com/dotnet/samples/tree/main/core/workers" target="_blank">(Microsoft)(英文版) Sample Source in GitHub</a></p>
+            </li>
+        </ul>
+    </div>
+</body>
