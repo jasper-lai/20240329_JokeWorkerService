@@ -15,6 +15,7 @@
 三. [以 Console 模式執行](#section3)  
 四. [以 Windows Service 模式執行](#section4)  
 
+<a href="https://github.com/jasper-lai/20240329_JokeWorkerService" target="_blank">範例由此下載</a>.    
 <!-- more -->  
 
 ## 一. 開發過程 <a id="section1"></a>
